@@ -1,0 +1,298 @@
+# set -o xtrace
+set -x
+ulimit -c unlimited
+[ -z "${n_gpu}" ] && n_gpu=$(nvidia-smi -L | wc -l)
+[ -z "${lr}" ] && lr=2e-4
+[ -z "${end_lr}" ] && end_lr=1e-9
+[ -z "${max_epoch}" ] && max_epoch=50
+[ -z "${layers}" ] && layers=6
+[ -z "${hidden_size}" ] && hidden_size=768
+[ -z "${ffn_size}" ] && ffn_size=768
+[ -z "${num_head}" ] && num_head=32
+[ -z "${batch_size}" ] && batch_size=16
+[ -z "${clip_norm}" ] && clip_norm=5
+
+[ -z "${update_freq}" ] && update_freq=1
+[ -z "${total_steps}" ] && total_steps=$((320000*(max_epoch+1)/batch_size/n_gpu/update_freq))
+[ -z "${warmup_steps}" ] && warmup_steps=$((total_steps*10/100))
+[ -z "${seed}" ] && seed=1
+
+[ -z "${dataset_name}" ] && dataset_name=md-refined2019-6-5-5
+[ -z "${data_path}" ] && data_path=$(realpath ~/dataset)
+[ -z "${save_path}" ] && save_path=$(realpath ~)
+[ -z "${dropout}" ] && dropout=0.1
+[ -z "${act_dropout}" ] && act_dropout=0.1
+[ -z "${attn_dropout}" ] && attn_dropout=0.1
+[ -z "${weight_decay}" ] && weight_decay=0.01
+[ -z "${droppath_prob}" ] && droppath_prob=0.0
+[ -z "${sandwich_ln}" ] && sandwich_ln="true"
+
+[ -z "${adam_betas}" ] && adam_betas="(0.9,0.999)"
+[ -z "${adam_eps}" ] && adam_eps=1e-8
+
+[ -z "${save_prefix}" ] && save_prefix="MD"
+[ -z "${flag}" ] && flag=false
+[ -z "${flag_m}" ] && flag_m=4
+[ -z "${flag_step_size}" ] && flag_step_size=0.01
+[ -z "${flag_mag}" ] && flag_mag=0.01
+
+[ -z "${dist_head}" ] && dist_head="none"
+# gbf
+[ -z "${num_dist_head_kernel}" ] && num_dist_head_kernel=128
+[ -z "${num_edge_types}" ] && num_edge_types=$((512*32))
+# bucket
+[ -z "${bucket3d_hidden_dim}" ] && bucket3d_hidden_dim=256
+[ -z "${bucket3d_dist_max_dist}" ] && bucket3d_dist_max_dist=45
+[ -z "${bucket3d_dist_bucket_size}" ] && bucket3d_dist_bucket_size=0.1
+[ -z "${bucket3d_polar_max_dist}" ] && bucket3d_polar_max_dist=5
+[ -z "${bucket3d_polar_angle_bucket_size}" ] && bucket3d_polar_angle_bucket_size=1
+[ -z "${bucket3d_embedding_nonlinear}" ] && bucket3d_embedding_nonlinear=false
+[ -z "${sample_weight_estimator}" ] && sample_weight_estimator=false
+[ -z "${sample_weight_estimator_pat}" ] && sample_weight_estimator_pat=pdbbind
+
+[ -z "${task}" ] && task="graph_prediction"
+[ -z "${loss}" ] && loss="l1_loss"
+[ -z "${patience}" ] && patience="10"
+
+[ -z "${fingerprint}" ] && fingerprint="false"
+
+[ -z "${exp}" ] && exp="5-5-5"
+[ -z "${test_set}" ] && test_set="hybrid:set_name=md-refined2019-5-5-5+general-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
+[ -z "${ddp_options}" ] && ddp_options=""
+
+
+if [ "$flag" = 'true' ]; then
+  task="${task}_with_flag"
+  loss="${loss}_with_flag"
+fi
+
+OLDIFS=$IFS
+IFS=':' #setting comma as delimiter
+read -a strarr <<< "$dataset_name" #reading str as an array as tokens separated by IFS
+IFS=$OLDIFS
+
+hyperparams="${save_prefix}-dataset${strarr[0]}_${strarr[1]}-lr$lr-end_lr$end_lr-epoch${max_epoch}-task${task}-loss${loss}"
+hyperparams+="-L${layers}D${hidden_size}F${ffn_size}H${num_head}BS$((batch_size*n_gpu*update_freq))CLIP${clip_norm}"
+hyperparams+="/dp${dropout}-attn_dp${attn_dropout}-act_dp${act_dropout}-wd${weight_decay}-droppath${droppath_prob}-sandwich${sandwich_ln}"
+if [ "$flag" = 'true' ]; then
+  hyperparams+="-flag${flag}-flag_m${flag_m}-stepsize${flag_step_size}-mag${flag_mag}"
+fi
+
+hyperparams+="-dist_head${dist_head}"
+if [ "${dist_head}" = "gbf" ] || [ "${dist_head}" = "gbf3d" ]; then
+  hyperparams+="-ndhk${num_dist_head_kernel}-net${num_edge_types}"
+elif [ "${dist_head}" = "bucket" ]; then
+  hyperparams+="-hd${bucket3d_hidden_dim}-dmd${bucket3d_dist_max_dist}-dbs${bucket3d_dist_bucket_size}"
+  hyperparams+="-pmd${bucket3d_polar_max_dist}-pabs${bucket3d_polar_angle_bucket_size}-enl${bucket3d_embedding_nonlinear}"
+fi
+if [ "$sample_weight_estimator" = "true" ]; then
+  hyperparams+="sample_weight_estimator$sample_weight_estimator-pat$sample_weight_estimator_pat"
+fi
+hyperparams+="-SEED${seed}"
+
+
+save_dir=$save_path/$hyperparams
+tsb_dir=$save_dir/tsb
+[ -z "${WANDB_PROJECT_NAME}" ] && WANDB_PROJECT_NAME="MD-bind"
+export WANDB_NAME="$hyperparams"
+export WANDB_RUN_ID=`echo -n $save_dir | md5sum | awk '{print $1}'`
+export WANDB_SAVE_DIR=$save_dir/wandb
+
+mkdir -p "$save_dir"
+mkdir -p "$WANDB_SAVE_DIR"
+
+echo -e "\n\n"
+echo "=====================================ARGS======================================"
+echo "arg0: $0"
+echo "seed: ${seed}"
+echo "batch_size: $((batch_size*n_gpu*update_freq))"
+echo "n_layers: ${layers}"
+echo "lr: ${lr}"
+echo "warmup_steps: ${warmup_steps}"
+echo "total_steps: ${total_steps}"
+echo "max_epoch: ${max_epoch}"
+echo "clip_norm: ${clip_norm}"
+echo "hidden_size: ${hidden_size}"
+echo "ffn_size: ${ffn_size}"
+echo "num_head: ${num_head}"
+echo "update_freq: ${update_freq}"
+echo "dropout: ${dropout}"
+echo "attn_dropout: ${attn_dropout}"
+echo "act_dropout: ${act_dropout}"
+echo "weight_decay: ${weight_decay}"
+echo "adam_betas: ${adam_betas}"
+echo "adam_eps: ${adam_eps}"
+echo "flag_m: ${flag_m}"
+echo "flag_step_size: ${flag_step_size}"
+echo "flag_mag: ${flag_mag}"
+echo "save_dir: ${save_dir}"
+echo "tsb_dir: ${tsb_dir}"
+echo "data_dir: ${data_path}"
+echo "droppath_prob: ${droppath_prob}"
+echo "dist_head: ${dist_head}"
+echo "num_dist_head_kernel: $num_dist_head_kernel"
+echo "num_edge_types: $num_edge_types"
+echo "bucket3d_hidden_dim: $bucket3d_hidden_dim"
+echo "bucket3d_dist_max_dist: $bucket3d_dist_max_dist"
+echo "bucket3d_dist_bucket_size: $bucket3d_dist_bucket_size"
+echo "bucket3d_polar_max_dist: $bucket3d_polar_max_dist"
+echo "bucket3d_polar_angle_bucket_size: $bucket3d_polar_angle_bucket_size"
+echo "bucket3d_embedding_nonlinear: $bucket3d_embedding_nonlinear"
+echo "sample_weight_estimator: $sample_weight_estimator"
+echo "sample_weight_estimator_pat: $sample_weight_estimator_pat"
+echo "==============================================================================="
+
+# ENV
+echo -e "\n\n"
+echo "======================================ENV======================================"
+echo 'Environment'
+ulimit -c unlimited;
+echo -e "\n\nhostname"
+hostname
+echo -e "\n\nnvidia-smi"
+nvidia-smi
+echo "which python"
+which python
+echo "PATH"
+echo $PATH
+echo "torch version"
+python -c "import torch; print(torch.__version__)"
+echo "ddp_options"
+echo $ddp_options
+echo "==============================================================================="
+
+echo -e "\n\n"
+echo "==================================ACTION ARGS==========================================="
+action_args=""
+if [ "$sandwich_ln" = "true" ]; then
+  action_args+="--sandwich-ln "
+fi
+
+if [ "$flag" = 'true' ]; then
+  action_args+="--flag-m $flag_m --flag-step-size $flag_step_size --flag-mag $flag_mag "
+fi
+
+if [ "$bucket3d_embedding_nonlinear" = 'true' ]; then
+  action_args+="--bucket3d-embedding-nonlinear "
+fi
+
+if [ "$sample_weight_estimator" = 'true' ]; then
+  action_args+="--sample-weight-estimator --sample-weight-estimator-pat $sample_weight_estimator_pat "
+fi
+
+if [ "$fingerprint" = 'true' ]; then
+  action_args+="--fingerprint "
+fi
+
+echo "action_args: ${action_args}"
+echo "========================================================================================"
+
+
+python -m torch.distributed.launch --nproc_per_node=${n_gpu} ${ddp_options} \
+  $(which fairseq-train) \
+  --user-dir "$(realpath ./dynaformer)" \
+  --num-workers 16 --ddp-backend=legacy_ddp \
+  --dataset-name "$dataset_name" \
+  --dataset-source pyg --data-path "$data_path" \
+  --batch-size $batch_size --data-buffer-size 20 \
+  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq --patience $patience \
+  --encoder-layers $layers --encoder-attention-heads $num_head \
+  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+  --fp16 --wandb-project "${WANDB_PROJECT_NAME}" --save-dir "$save_dir" --tensorboard-logdir $tsb_dir --seed $seed \
+  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head \
+  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size  2>&1 | tee "$save_dir/train_log.txt"
+
+
+python dynaformer/evaluate/evaluate.py \
+  --split "test" --suffix "_pdbbind2016" \
+  --user-dir "$(realpath ./dynaformer)" \
+  --num-workers 16 --ddp-backend=legacy_ddp \
+  --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=$exp,seed=2022" \
+  --dataset-source pyg --data-path "$data_path" \
+  --batch-size $batch_size --data-buffer-size 20 \
+  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+  --encoder-layers $layers --encoder-attention-heads $num_head \
+  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+  --fp16 --save-dir "$save_dir" --seed $seed \
+  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+
+
+python dynaformer/evaluate/evaluate.py \
+  --split "test" --suffix "_pdbbind2013" \
+  --user-dir "$(realpath ./dynaformer)" \
+  --num-workers 16 --ddp-backend=legacy_ddp \
+  --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2013,cutoffs=$exp,seed=2022" \
+  --dataset-source pyg --data-path "$data_path" \
+  --batch-size $batch_size --data-buffer-size 20 \
+  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+  --encoder-layers $layers --encoder-attention-heads $num_head \
+  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+  --fp16 --save-dir "$save_dir" --seed $seed \
+  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+
+
+python dynaformer/evaluate/evaluate.py \
+  --split "test" --suffix "_md" \
+  --user-dir "$(realpath ./dynaformer)" \
+  --num-workers 16 --ddp-backend=legacy_ddp \
+  --dataset-name "mddata:set_name=md-refined2019-$exp,seed=2022" \
+  --dataset-source pyg --data-path "$data_path" \
+  --batch-size $batch_size --data-buffer-size 20 \
+  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+  --encoder-layers $layers --encoder-attention-heads $num_head \
+  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+  --fp16 --save-dir "$save_dir" --seed $seed \
+  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+
+
+python dynaformer/evaluate/evaluate.py \
+  --split "test" --suffix "_exp" \
+  --user-dir "$(realpath ./dynaformer)" \
+  --num-workers 16 --ddp-backend=legacy_ddp \
+  --dataset-name "exp:set_name=$exp" \
+  --dataset-source pyg --data-path "$data_path" \
+  --batch-size $batch_size --data-buffer-size 20 \
+  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+  --encoder-layers $layers --encoder-attention-heads $num_head \
+  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+  --fp16 --save-dir "$save_dir" --seed $seed \
+  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
