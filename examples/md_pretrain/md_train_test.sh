@@ -17,7 +17,7 @@ ulimit -c unlimited
 [ -z "${warmup_steps}" ] && warmup_steps=$((total_steps*10/100))
 [ -z "${seed}" ] && seed=1
 
-[ -z "${dataset_name}" ] && dataset_name=md-refined2019-6-5-5
+[ -z "${dataset_name}" ] && dataset_name="hybrid:set_name=md-refined2019-5-5-5+general-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
 [ -z "${data_path}" ] && data_path=$(realpath ~/dataset)
 [ -z "${save_path}" ] && save_path=$(realpath ~)
 [ -z "${dropout}" ] && dropout=0.1
@@ -56,8 +56,7 @@ ulimit -c unlimited
 
 [ -z "${fingerprint}" ] && fingerprint="false"
 
-[ -z "${exp}" ] && exp="5-5-5"
-[ -z "${test_set}" ] && test_set="hybrid:set_name=md-refined2019-5-5-5+general-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
+[ -z "${test_set}" ] && test_set="pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
 [ -z "${ddp_options}" ] && ddp_options=""
 
 
@@ -210,89 +209,89 @@ python -m torch.distributed.launch --nproc_per_node=${n_gpu} ${ddp_options} \
   --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size  2>&1 | tee "$save_dir/train_log.txt"
 
 
-python dynaformer/evaluate/evaluate.py \
-  --split "test" --suffix "_pdbbind2016" \
-  --user-dir "$(realpath ./dynaformer)" \
-  --num-workers 16 --ddp-backend=legacy_ddp \
-  --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=$exp,seed=2022" \
-  --dataset-source pyg --data-path "$data_path" \
-  --batch-size $batch_size --data-buffer-size 20 \
-  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
-  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
-  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
-  --encoder-layers $layers --encoder-attention-heads $num_head \
-  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
-  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
-  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
-  --fp16 --save-dir "$save_dir" --seed $seed \
-  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
-  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
-  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
-  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
-  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+# python dynaformer/evaluate/evaluate.py \
+#   --split "test" --suffix "_pdbbind2016" \
+#   --user-dir "$(realpath ./dynaformer)" \
+#   --num-workers 16 --ddp-backend=legacy_ddp \
+#   --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=$exp,seed=2022" \
+#   --dataset-source pyg --data-path "$data_path" \
+#   --batch-size $batch_size --data-buffer-size 20 \
+#   --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+#   --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+#   --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+#   --encoder-layers $layers --encoder-attention-heads $num_head \
+#   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+#   --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+#   --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+#   --fp16 --save-dir "$save_dir" --seed $seed \
+#   --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+#   --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+#   --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+#   --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+#   --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
 
 
-python dynaformer/evaluate/evaluate.py \
-  --split "test" --suffix "_pdbbind2013" \
-  --user-dir "$(realpath ./dynaformer)" \
-  --num-workers 16 --ddp-backend=legacy_ddp \
-  --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2013,cutoffs=$exp,seed=2022" \
-  --dataset-source pyg --data-path "$data_path" \
-  --batch-size $batch_size --data-buffer-size 20 \
-  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
-  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
-  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
-  --encoder-layers $layers --encoder-attention-heads $num_head \
-  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
-  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
-  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
-  --fp16 --save-dir "$save_dir" --seed $seed \
-  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
-  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
-  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
-  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
-  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+# python dynaformer/evaluate/evaluate.py \
+#   --split "test" --suffix "_pdbbind2013" \
+#   --user-dir "$(realpath ./dynaformer)" \
+#   --num-workers 16 --ddp-backend=legacy_ddp \
+#   --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2013,cutoffs=$exp,seed=2022" \
+#   --dataset-source pyg --data-path "$data_path" \
+#   --batch-size $batch_size --data-buffer-size 20 \
+#   --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+#   --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+#   --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+#   --encoder-layers $layers --encoder-attention-heads $num_head \
+#   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+#   --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+#   --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+#   --fp16 --save-dir "$save_dir" --seed $seed \
+#   --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+#   --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+#   --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+#   --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+#   --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
 
 
-python dynaformer/evaluate/evaluate.py \
-  --split "test" --suffix "_md" \
-  --user-dir "$(realpath ./dynaformer)" \
-  --num-workers 16 --ddp-backend=legacy_ddp \
-  --dataset-name "mddata:set_name=md-refined2019-$exp,seed=2022" \
-  --dataset-source pyg --data-path "$data_path" \
-  --batch-size $batch_size --data-buffer-size 20 \
-  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
-  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
-  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
-  --encoder-layers $layers --encoder-attention-heads $num_head \
-  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
-  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
-  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
-  --fp16 --save-dir "$save_dir" --seed $seed \
-  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
-  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
-  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
-  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
-  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+# python dynaformer/evaluate/evaluate.py \
+#   --split "test" --suffix "_md" \
+#   --user-dir "$(realpath ./dynaformer)" \
+#   --num-workers 16 --ddp-backend=legacy_ddp \
+#   --dataset-name "mddata:set_name=md-refined2019-$exp,seed=2022" \
+#   --dataset-source pyg --data-path "$data_path" \
+#   --batch-size $batch_size --data-buffer-size 20 \
+#   --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+#   --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+#   --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+#   --encoder-layers $layers --encoder-attention-heads $num_head \
+#   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+#   --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+#   --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+#   --fp16 --save-dir "$save_dir" --seed $seed \
+#   --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+#   --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+#   --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+#   --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+#   --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
 
 
-python dynaformer/evaluate/evaluate.py \
-  --split "test" --suffix "_exp" \
-  --user-dir "$(realpath ./dynaformer)" \
-  --num-workers 16 --ddp-backend=legacy_ddp \
-  --dataset-name "exp:set_name=$exp" \
-  --dataset-source pyg --data-path "$data_path" \
-  --batch-size $batch_size --data-buffer-size 20 \
-  --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
-  --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
-  --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
-  --encoder-layers $layers --encoder-attention-heads $num_head \
-  --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
-  --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
-  --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
-  --fp16 --save-dir "$save_dir" --seed $seed \
-  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
-  --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
-  --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
-  --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
-  --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"
+# python dynaformer/evaluate/evaluate.py \
+#   --split "test" --suffix "_exp" \
+#   --user-dir "$(realpath ./dynaformer)" \
+#   --num-workers 16 --ddp-backend=legacy_ddp \
+#   --dataset-name "exp:set_name=$exp" \
+#   --dataset-source pyg --data-path "$data_path" \
+#   --batch-size $batch_size --data-buffer-size 20 \
+#   --task $task --criterion $loss --arch graphormer_base --num-classes 1 \
+#   --lr $lr --end-learning-rate $end_lr --lr-scheduler polynomial_decay --power 1 \
+#   --warmup-updates $warmup_steps --total-num-update $total_steps --max-update $total_steps --update-freq $update_freq \
+#   --encoder-layers $layers --encoder-attention-heads $num_head \
+#   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
+#   --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
+#   --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
+#   --fp16 --save-dir "$save_dir" --seed $seed \
+#   --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head  \
+#   --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types \
+#   --bucket3d-hidden-dim $bucket3d_hidden_dim --bucket3d-dist-max-dist $bucket3d_dist_max_dist \
+#   --bucket3d-dist-bucket-size $bucket3d_dist_bucket_size --bucket3d-polar-max-dist $bucket3d_polar_max_dist \
+#   --bucket3d-polar-angle-bucket-size $bucket3d_polar_angle_bucket_size --tsb-logdir $tsb_dir 2>&1 | tee "$save_dir/test_log.txt"

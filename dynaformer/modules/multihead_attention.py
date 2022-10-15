@@ -75,7 +75,7 @@ class MultiheadAttention(nn.Module):
 
         self.reset_parameters()
 
-        self.onnx_trace = False
+        self.onnx_trace = True
 
     def prepare_for_onnx_export_(self):
         raise NotImplementedError

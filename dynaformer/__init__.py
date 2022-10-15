@@ -17,4 +17,4 @@ except:
         flush=True,
     )
 
-import graphormer.criterions
+import dynaformer.criterions

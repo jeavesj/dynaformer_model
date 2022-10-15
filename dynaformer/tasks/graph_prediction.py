@@ -6,6 +6,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from importlib.metadata import metadata
 import logging
 
 import contextlib
@@ -20,7 +21,6 @@ from fairseq.data import (
 )
 from fairseq.tasks import FairseqDataclass, FairseqTask, register_task
 
-from graphormer.pretrain import load_pretrained_model
 
 from ..data.dataset import (
     BatchedDataDataset,
@@ -120,7 +120,7 @@ class GraphPredictionConfig(FairseqDataclass):
     )
 
     train_epoch_shuffle: bool = field(
-        default=False,
+        default=True,
         metadata={"help": "whether to shuffle the dataset at each epoch"},
     )
 
@@ -129,6 +129,10 @@ class GraphPredictionConfig(FairseqDataclass):
         metadata={"help": "path to the module of user-defined dataset"},
     )
 
+    data_path: str = field(
+        default="",
+        metadata={"help": "Custom place to store data"}
+    )
 
 @register_task("graph_prediction", dataclass=GraphPredictionConfig)
 class GraphPredictionTask(FairseqTask):
@@ -145,6 +149,7 @@ class GraphPredictionTask(FairseqTask):
                 self.dm = GraphormerDataset(
                     dataset=dataset_dict["dataset"],
                     dataset_source=dataset_dict["source"],
+                    data_path=dataset_dict["data_path"],
                     train_idx=dataset_dict["train_idx"],
                     valid_idx=dataset_dict["valid_idx"],
                     test_idx=dataset_dict["test_idx"],
@@ -155,6 +160,7 @@ class GraphPredictionTask(FairseqTask):
             self.dm = GraphormerDataset(
                 dataset_spec=cfg.dataset_name,
                 dataset_source=cfg.dataset_source,
+                data_path=cfg.data_path,
                 seed=cfg.seed,
             )
 
@@ -212,7 +218,7 @@ class GraphPredictionTask(FairseqTask):
 
         if split == "train" and self.cfg.train_epoch_shuffle:
             dataset = EpochShuffleDataset(
-                dataset, num_samples=len(dataset), seed=self.cfg.seed
+                dataset, len(dataset), seed=self.cfg.seed
             )
 
         logger.info("Loaded {0} with #samples: {1}".format(split, len(dataset)))

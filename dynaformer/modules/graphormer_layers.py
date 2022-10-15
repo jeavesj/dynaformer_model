@@ -36,12 +36,8 @@ class GraphNodeFeature(nn.Module):
         # 1 for graph token
         self.atom_encoder = nn.Embedding(num_atoms + 1, hidden_dim, padding_idx=0)
         self.in_degree_encoder = nn.Embedding(num_in_degree, hidden_dim, padding_idx=0)
-        self.out_degree_encoder = nn.Embedding(
-            num_out_degree, hidden_dim, padding_idx=0
-        )
-
+        self.out_degree_encoder = nn.Embedding(num_out_degree, hidden_dim, padding_idx=0)
         self.graph_token = nn.Embedding(1, hidden_dim)
-
         self.apply(lambda module: init_params(module, n_layers=n_layers))
 
     def forward(self, batched_data):
@@ -50,13 +46,10 @@ class GraphNodeFeature(nn.Module):
             batched_data["in_degree"],
             batched_data["out_degree"],
         )
+        x = batched_data["x"]
         n_graph, n_node = x.size()[:2]
-
         # node feauture + graph token
         node_feature = self.atom_encoder(x).sum(dim=-2)  # [n_graph, n_node, n_hidden]
-
-        # if self.flag and perturb is not None:
-        #     node_feature += perturb
 
         node_feature = (
             node_feature
@@ -65,9 +58,7 @@ class GraphNodeFeature(nn.Module):
         )
 
         graph_token_feature = self.graph_token.weight.unsqueeze(0).repeat(n_graph, 1, 1)
-
         graph_node_feature = torch.cat([graph_token_feature, node_feature], dim=1)
-
         return graph_node_feature
 
 
@@ -148,17 +139,17 @@ class GraphAttnBias(nn.Module):
                 max_dist, -1, self.num_heads
             )
             edge_input_flat = torch.bmm(
-                edge_input_flat,
+                edge_input_flat,  # [max_dist, B x n_node x n_node, n_head]
                 self.edge_dis_encoder.weight.reshape(
                     -1, self.num_heads, self.num_heads
-                )[:max_dist, :, :],
+                )[:max_dist, :, :],  # [max_dist, n_head, n_head]
             )
             edge_input = edge_input_flat.reshape(
                 max_dist, n_graph, n_node, n_node, self.num_heads
-            ).permute(1, 2, 3, 0, 4)
+            ).permute(1, 2, 3, 0, 4)  # B x n_node x n_node x max_dist x n_head
             edge_input = (
-                edge_input.sum(-2) / (spatial_pos_.float().unsqueeze(-1))
-            ).permute(0, 3, 1, 2)
+                edge_input.sum(-2) / (spatial_pos_.to(attn_bias.dtype).unsqueeze(-1))
+            ).permute(0, 3, 1, 2)  # B x n_head x n_node x n_node
         else:
             # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
             edge_input = self.edge_encoder(attn_edge_type).mean(-2).permute(0, 3, 1, 2)

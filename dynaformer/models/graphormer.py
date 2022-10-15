@@ -8,6 +8,7 @@
 
 import logging
 
+import fairseq.modules
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,8 +28,6 @@ from ..modules import init_graphormer_params, GraphormerGraphEncoder
 
 logger = logging.getLogger(__name__)
 
-from ..pretrain import load_pretrained_model
-
 
 @register_model("graphormer")
 class GraphormerModel(FairseqEncoderModel):
@@ -39,10 +38,6 @@ class GraphormerModel(FairseqEncoderModel):
         if getattr(args, "apply_graphormer_init", False):
             self.apply(init_graphormer_params)
         self.encoder_embed_dim = args.encoder_embed_dim
-        if args.pretrained_model_name != "none":
-            self.load_state_dict(load_pretrained_model(args.pretrained_model_name))
-            if not args.load_pretrained_model_output_layer:
-                self.encoder.reset_output_layer_parameters()
 
     @staticmethod
     def add_args(parser):
@@ -61,10 +56,41 @@ class GraphormerModel(FairseqEncoderModel):
             "--act-dropout",
             type=float,
             metavar="D",
-            help="dropout probability after" " activation in FFN",
+            help="dropout probability after activation in FFN",
         )
-
+        parser.add_argument(
+            "--layerdrop",
+            type=float,
+            metavar="D",
+            default=0.0,
+            help="layer wise drop",
+        )
+        # encoder args
+        parser.add_argument(
+            "--encoder-normalize-before",
+            action="store_true",
+            help="apply layernorm before each encoder block",
+        )
+        parser.add_argument(
+            "--apply-graphormer-init",
+            action="store_true",
+            help="use custom param initialization for Graphormer",
+        )
+        parser.add_argument(
+            "--activation-fn",
+            choices=utils.get_available_activation_fns(),
+            help="activation function to use",
+        )
+        parser.add_argument(
+            "--embed-scale",
+            type=float,
+            default=-1.0,
+            help="Embedding scale apply to node embedding"
+        )
         # Arguments related to hidden states and self-attention
+        parser.add_argument(
+            "--encoder-layers", type=int, metavar="N", help="num encoder layers"
+        )
         parser.add_argument(
             "--encoder-ffn-embed-dim",
             type=int,
@@ -72,15 +98,11 @@ class GraphormerModel(FairseqEncoderModel):
             help="encoder embedding dimension for FFN",
         )
         parser.add_argument(
-            "--encoder-layers", type=int, metavar="N", help="num encoder layers"
-        )
-        parser.add_argument(
             "--encoder-attention-heads",
             type=int,
             metavar="N",
             help="num encoder attention heads",
         )
-
         # Arguments related to input and output embeddings
         parser.add_argument(
             "--encoder-embed-dim",
@@ -88,48 +110,66 @@ class GraphormerModel(FairseqEncoderModel):
             metavar="N",
             help="encoder embedding dimension",
         )
-        parser.add_argument(
+        parser.add_argument(  # you shall not pass
             "--share-encoder-input-output-embed",
             action="store_true",
-            help="share encoder input" " and output embeddings",
-        )
-        parser.add_argument(
-            "--encoder-learned-pos",
-            action="store_true",
-            help="use learned positional embeddings in the encoder",
+            help="share encoder input and output embeddings",
         )
         parser.add_argument(
             "--no-token-positional-embeddings",
             action="store_true",
             help="if set, disables positional embeddings" " (outside self attention)",
         )
+
         parser.add_argument(
-            "--max-positions", type=int, help="number of positional embeddings to learn"
+            "--sandwich-ln",
+            default=False,
+            action="store_true",
+            help="use sandwich layernorm for the encoder block",
+        )
+        # 3d_encoder
+
+        parser.add_argument(
+            "--dist-head",
+            type=str,
+            choices=['none', 'gbf', 'gbf3d', 'bucket', 'embed3d'],
+            default='none',
+            help="3d encoding head"
         )
 
-        # Arguments related to parameter initialization
         parser.add_argument(
-            "--apply-graphormer-init",
-            action="store_true",
-            help="use custom param initialization for Graphormer",
+            "--num-dist-head-kernel",
+            type=int,
+            default=128,
+            help="Number of kernels in distance head"
+        )
+        parser.add_argument(
+            "--num-edge-types",
+            type=int,
+            default=512*16,
+            help="number of atom type for gbf dist head"
         )
 
-        # misc params
         parser.add_argument(
-            "--activation-fn",
-            choices=utils.get_available_activation_fns(),
-            help="activation function to use",
-        )
-        parser.add_argument(
-            "--encoder-normalize-before",
+            "--sample-weight-estimator",
+            default=False,
             action="store_true",
-            help="apply layernorm before each encoder block",
+            help="add soft weight for loss"
         )
         parser.add_argument(
-            "--pre-layernorm",
-            action="store_true",
-            help="apply layernorm before self-attention and ffn. Without this, post layernorm will used",
+            "--sample-weight-estimator-pat",
+            default="pdbbind",
+            type=str,
+            help="pattern to assign 1.0 weight"
         )
+
+        parser.add_argument(
+            "--fingerprint",
+            default=False,
+            action='store_true',
+            help="pattern to assign 1.0 weight"
+        )
+
 
     def max_nodes(self):
         return self.encoder.max_nodes
@@ -175,10 +215,16 @@ class GraphormerEncoder(FairseqEncoder):
             dropout=args.dropout,
             attention_dropout=args.attention_dropout,
             activation_dropout=args.act_dropout,
+            layerdrop=args.layerdrop,  # !
             encoder_normalize_before=args.encoder_normalize_before,
-            pre_layernorm=args.pre_layernorm,
             apply_graphormer_init=args.apply_graphormer_init,
             activation_fn=args.activation_fn,
+            embed_scale=args.embed_scale if args.embed_scale > 0 else None,  # !
+            dist_head=args.dist_head,
+            sandwich_ln=args.sandwich_ln,
+            # 3d_encoder
+            num_dist_head_kernel=args.num_dist_head_kernel,
+            num_edge_types=args.num_edge_types,
         )
 
         self.share_input_output_embed = args.share_encoder_input_output_embed
@@ -208,6 +254,15 @@ class GraphormerEncoder(FairseqEncoder):
                 )
             else:
                 raise NotImplementedError
+        self.sample_weight_estimator = args.sample_weight_estimator
+        self.sample_weight_estimator_pat = args.sample_weight_estimator_pat
+        if args.fingerprint:
+            self.fpnn = nn.Sequential(nn.Linear(2040, args.encoder_embed_dim),
+                                      nn.GELU(),
+                                      nn.Linear(args.encoder_embed_dim, args.encoder_embed_dim))
+            self.reducer = nn.Linear(args.encoder_embed_dim*2, args.encoder_embed_dim)
+        else:
+            self.fpnn = None
 
     def reset_output_layer_parameters(self):
         self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
@@ -219,15 +274,16 @@ class GraphormerEncoder(FairseqEncoder):
             batched_data,
             perturb=perturb,
         )
-
+        # inner_stats: N x B x H
         x = inner_states[-1].transpose(0, 1)
-
-        # project masked tokens only
-        if masked_tokens is not None:
-            raise NotImplementedError
-
         x = self.layer_norm(self.activation_fn(self.lm_head_transform_weight(x)))
-
+        # x: B x N x H
+        if self.fpnn is not None:
+            fpemb = self.fpnn(batched_data["fp"])
+            # fpemb: B x H
+            x = self.reducer(torch.cat([x[:, 0, :].squeeze(dim=1), fpemb], dim=1))
+        else:
+            x = x[:, 0, :].squeeze(dim=1)
         # project back to size of vocabulary
         if self.share_input_output_embed and hasattr(
             self.graph_encoder.embed_tokens, "weight"
@@ -237,7 +293,19 @@ class GraphormerEncoder(FairseqEncoder):
             x = self.embed_out(x)
         if self.lm_output_learned_bias is not None:
             x = x + self.lm_output_learned_bias
+        # project masked tokens only
+        if masked_tokens is not None:
+            raise NotImplementedError
 
+        if self.sample_weight_estimator is not None:
+            weight = torch.ones(x.shape, dtype=x.dtype, device=x.device) * 0.01
+            wmask = torch.ones(weight.shape, dtype=torch.bool, device=weight.device)
+            wones = torch.ones(weight.shape, dtype=weight.dtype, device=weight.device)
+            for idx, i in enumerate(batched_data['pdbid']):
+                if i.endswith(self.sample_weight_estimator_pat):
+                    wmask[idx] = False
+            weight = torch.where(wmask, weight, wones)
+            return x, weight
         return x
 
     def max_nodes(self):
@@ -278,35 +346,22 @@ def base_architecture(args):
 
 @register_model_architecture("graphormer", "graphormer_base")
 def graphormer_base_architecture(args):
-    if args.pretrained_model_name == "pcqm4mv1_graphormer_base" or \
-       args.pretrained_model_name == "pcqm4mv2_graphormer_base" or \
-       args.pretrained_model_name == "pcqm4mv1_graphormer_base_for_molhiv":
-        args.encoder_layers = 12
-        args.encoder_attention_heads = 32
-        args.encoder_ffn_embed_dim = 768
-        args.encoder_embed_dim = 768
-        args.dropout = getattr(args, "dropout", 0.0)
-        args.attention_dropout = getattr(args, "attention_dropout", 0.1)
-        args.act_dropout = getattr(args, "act_dropout", 0.1)
-    else:
-        args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
-        args.encoder_layers = getattr(args, "encoder_layers", 12)
-        args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 32)
-        args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 768)
-        args.dropout = getattr(args, "dropout", 0.0)
-        args.attention_dropout = getattr(args, "attention_dropout", 0.1)
-        args.act_dropout = getattr(args, "act_dropout", 0.1)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
+
+    args.encoder_layers = getattr(args, "encoder_layers", 12)
+
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 32)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 768)
 
     args.activation_fn = getattr(args, "activation_fn", "gelu")
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", False)
     args.share_encoder_input_output_embed = getattr(
             args, "share_encoder_input_output_embed", False
         )
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
     )
-    args.pre_layernorm = getattr(args, "pre_layernorm", False)
     base_architecture(args)
 
 
@@ -321,14 +376,13 @@ def graphormer_slim_architecture(args):
 
     args.activation_fn = getattr(args, "activation_fn", "gelu")
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", False)
     args.share_encoder_input_output_embed = getattr(
             args, "share_encoder_input_output_embed", False
         )
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
     )
-    args.pre_layernorm = getattr(args, "pre_layernorm", False)
     base_architecture(args)
 
 
@@ -343,12 +397,11 @@ def graphormer_large_architecture(args):
 
     args.activation_fn = getattr(args, "activation_fn", "gelu")
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", False)
     args.share_encoder_input_output_embed = getattr(
             args, "share_encoder_input_output_embed", False
         )
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
     )
-    args.pre_layernorm = getattr(args, "pre_layernorm", False)
     base_architecture(args)

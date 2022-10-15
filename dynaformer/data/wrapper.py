@@ -3,7 +3,7 @@
 
 import torch
 import numpy as np
-import torch_geometric
+import torch_geometric as pyg
 from ogb.graphproppred import PygGraphPropPredDataset
 from ogb.lsc.pcqm4mv2_pyg import PygPCQM4Mv2Dataset
 from functools import lru_cache
@@ -20,6 +20,45 @@ def convert_to_single_emb(x, offset: int = 512):
     feature_offset = 1 + torch.arange(0, feature_num * offset, offset, dtype=torch.long)
     x = x + feature_offset
     return x
+
+
+def gen_angle_dist(item):
+    edge_index = item['edge_index']
+    pos = item['pos']
+    n_node = pos.shape[0]
+    dense_adj = pyg.utils.to_dense_adj(edge_index, max_num_nodes=n_node).squeeze()
+    n_angle = 28
+    # average degrees
+    # q = np.array([0.25, 0.5 , 0.75, 0.9 , 0.95, 0.99, 0.999])
+    # np.quantile(degs, q)
+    # array([11., 15., 20., 24., 27., 31., 35.])
+
+    neighbors = torch.zeros(n_node, n_angle, dtype=torch.long) - 1
+    # n_node x n_angle
+    for i in range(n_node):
+        n = dense_adj[i].nonzero().squeeze(dim=1)[:n_angle]
+        neighbors[i, :n.shape[0]] = n
+
+    ijs = (pos[edge_index[1]] - pos[edge_index[0]])  # n_edge x 3
+    nijs = ijs.norm(dim=-1, keepdim=True)
+    ijs /= nijs
+    iks = pos[neighbors[edge_index[0]]] - (pos[edge_index[0]]).unsqueeze(1)  # n_edge x n_angle x 3
+    niks = iks.norm(dim=-1, keepdim=True)
+    iks /= niks
+    mask = neighbors[edge_index[0]] < 0
+    # n_edge x n_angle
+    cos = torch.bmm(iks, ijs.unsqueeze(2)).squeeze()
+    out = torch.arccos(cos) * 180 / np.pi
+    # i ==> j: angle = 0
+    out[mask] = -1
+    out.nan_to_num_(1e-6)
+    # angle = 0 is padding idx
+    out = out + 1
+
+    angle = pyg.utils.to_dense_adj(edge_index, edge_attr=out).squeeze()
+    dists = pyg.utils.to_dense_adj(edge_index, edge_attr=niks.squeeze()).squeeze()
+    # N x N x num_angle
+    return angle, dists
 
 
 def preprocess_item(item):
@@ -45,6 +84,8 @@ def preprocess_item(item):
     spatial_pos = torch.from_numpy((shortest_path_result)).long()
     attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
 
+    angle, dists = gen_angle_dist(item)
+
     # combine
     item.x = x
     item.attn_bias = attn_bias
@@ -53,6 +94,10 @@ def preprocess_item(item):
     item.in_degree = adj.long().sum(dim=1).view(-1)
     item.out_degree = item.in_degree  # for undirected graph
     item.edge_input = torch.from_numpy(edge_input).long()
+
+    # new data
+    item.angle = angle.to(torch.float)
+    item.dists = dists.to(torch.float)
 
     return item
 

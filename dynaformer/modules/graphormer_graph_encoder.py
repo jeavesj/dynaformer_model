@@ -6,7 +6,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 import torch
 import torch.nn as nn
@@ -16,6 +16,7 @@ from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 from .multihead_attention import MultiheadAttention
 from .graphormer_layers import GraphNodeFeature, GraphAttnBias
 from .graphormer_graph_encoder_layer import GraphormerGraphEncoderLayer
+from .graphormer_3d_encoder import Graphormer3DEncoder
 
 
 def init_graphormer_params(module):
@@ -62,7 +63,6 @@ class GraphormerGraphEncoder(nn.Module):
         activation_dropout: float = 0.1,
         layerdrop: float = 0.0,
         encoder_normalize_before: bool = False,
-        pre_layernorm: bool = False,
         apply_graphormer_init: bool = False,
         activation_fn: str = "gelu",
         embed_scale: float = None,
@@ -72,6 +72,10 @@ class GraphormerGraphEncoder(nn.Module):
         traceable: bool = False,
         q_noise: float = 0.0,
         qn_block_size: int = 8,
+        dist_head: str = "none",
+        num_dist_head_kernel: int = 128,
+        num_edge_types: int = 512*16,
+        sandwich_ln: bool = False,
     ) -> None:
 
         super().__init__()
@@ -104,6 +108,21 @@ class GraphormerGraphEncoder(nn.Module):
             n_layers=num_encoder_layers,
         )
 
+        if dist_head != "none":
+            self.dist_encoder = Graphormer3DEncoder(
+                encoder_name=dist_head,
+                # common
+                num_atoms=num_atoms,
+                num_edges=num_edges,
+                embedding_dim=embedding_dim,
+                num_heads=num_attention_heads,
+                # GBF
+                num_dist_head_kernel=num_dist_head_kernel,
+                num_edge_types=num_edge_types,
+            )
+        else:
+            self.dist_encoder = None
+
         self.embed_scale = embed_scale
 
         if q_noise > 0:
@@ -119,9 +138,6 @@ class GraphormerGraphEncoder(nn.Module):
             self.emb_layer_norm = LayerNorm(self.embedding_dim, export=export)
         else:
             self.emb_layer_norm = None
-
-        if pre_layernorm:
-            self.final_layer_norm = LayerNorm(self.embedding_dim, export=export)
 
         if self.layerdrop > 0.0:
             self.layers = LayerDropModuleList(p=self.layerdrop)
@@ -140,15 +156,11 @@ class GraphormerGraphEncoder(nn.Module):
                     export=export,
                     q_noise=q_noise,
                     qn_block_size=qn_block_size,
-                    pre_layernorm=pre_layernorm,
+                    sandwich_ln=sandwich_ln,
                 )
-                for _ in range(num_encoder_layers)
+                for i in range(num_encoder_layers)
             ]
         )
-
-        # Apply initialization of model params after building the model
-        if self.apply_graphormer_init:
-            self.apply(init_graphormer_params)
 
         def freeze_module_params(m):
             if m is not None:
@@ -173,7 +185,7 @@ class GraphormerGraphEncoder(nn.Module):
         export,
         q_noise,
         qn_block_size,
-        pre_layernorm,
+        sandwich_ln,
     ):
         return GraphormerGraphEncoderLayer(
             embedding_dim=embedding_dim,
@@ -186,7 +198,7 @@ class GraphormerGraphEncoder(nn.Module):
             export=export,
             q_noise=q_noise,
             qn_block_size=qn_block_size,
-            pre_layernorm=pre_layernorm,
+            sandwich_ln=sandwich_ln,
         )
 
     def forward(
@@ -214,13 +226,15 @@ class GraphormerGraphEncoder(nn.Module):
             x = self.graph_node_feature(batched_data)
 
         if perturb is not None:
-            #ic(torch.mean(torch.abs(x[:, 1, :])))
-            #ic(torch.mean(torch.abs(perturb)))
             x[:, 1:, :] += perturb
 
         # x: B x T x C
-
         attn_bias = self.graph_attn_bias(batched_data)
+
+        if self.dist_encoder is not None:
+            x_dist, attn_dist = self.dist_encoder(batched_data)
+            x[:, 1:, :] += x_dist
+            attn_bias[:, :, 1:, 1:] += attn_dist
 
         if self.embed_scale is not None:
             x = x * self.embed_scale

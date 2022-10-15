@@ -31,13 +31,9 @@ class GraphormerGraphEncoderLayer(nn.Module):
         export: bool = False,
         q_noise: float = 0.0,
         qn_block_size: int = 8,
-        init_fn: Callable = None,
-        pre_layernorm: bool = False,
+        sandwich_ln: bool = False,
     ) -> None:
         super().__init__()
-
-        if init_fn is not None:
-            init_fn()
 
         # Initialize parameters
         self.embedding_dim = embedding_dim
@@ -45,14 +41,14 @@ class GraphormerGraphEncoderLayer(nn.Module):
         self.attention_dropout = attention_dropout
         self.q_noise = q_noise
         self.qn_block_size = qn_block_size
-        self.pre_layernorm = pre_layernorm
-
         self.dropout_module = FairseqDropout(
             dropout, module_name=self.__class__.__name__
         )
+
         self.activation_dropout_module = FairseqDropout(
             activation_dropout, module_name=self.__class__.__name__
         )
+
 
         # Initialize blocks
         self.activation_fn = utils.get_activation_fn(activation_fn)
@@ -65,8 +61,11 @@ class GraphormerGraphEncoderLayer(nn.Module):
             qn_block_size=qn_block_size,
         )
 
+        self.sandwich_ln = sandwich_ln
         # layer norm associated with the self attention layer
         self.self_attn_layer_norm = LayerNorm(self.embedding_dim, export=export)
+        # layer norm associated with the self attention layer, sandwich
+        self.self_attn_sandwich_layer_norm = LayerNorm(self.embedding_dim, export=export) if self.sandwich_ln else None
 
         self.fc1 = self.build_fc1(
             self.embedding_dim,
@@ -83,6 +82,7 @@ class GraphormerGraphEncoderLayer(nn.Module):
 
         # layer norm associated with the position wise feed-forward NN
         self.final_layer_norm = LayerNorm(self.embedding_dim, export=export)
+        self.final_sandwich_layer_norm = LayerNorm(self.embedding_dim, export=export) if self.sandwich_ln else None
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
@@ -121,7 +121,7 @@ class GraphormerGraphEncoderLayer(nn.Module):
         """
         # x: T x B x C
         residual = x
-        if self.pre_layernorm:
+        if self.sandwich_ln:
             x = self.self_attn_layer_norm(x)
         x, attn = self.self_attn(
             query=x,
@@ -133,18 +133,22 @@ class GraphormerGraphEncoderLayer(nn.Module):
             attn_mask=self_attn_mask,
         )
         x = self.dropout_module(x)
+        if self.sandwich_ln:
+            x = self.self_attn_sandwich_layer_norm(x)
         x = residual + x
-        if not self.pre_layernorm:
+        if not self.sandwich_ln:
             x = self.self_attn_layer_norm(x)
 
         residual = x
-        if self.pre_layernorm:
+        if self.sandwich_ln:
             x = self.final_layer_norm(x)
         x = self.activation_fn(self.fc1(x))
         x = self.activation_dropout_module(x)
         x = self.fc2(x)
         x = self.dropout_module(x)
+        if self.sandwich_ln:
+            x = self.final_sandwich_layer_norm(x)
         x = residual + x
-        if not self.pre_layernorm:
+        if not self.sandwich_ln:
             x = self.final_layer_norm(x)
         return x, attn

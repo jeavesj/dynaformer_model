@@ -8,11 +8,11 @@ import torch.nn as nn
 from fairseq import metrics
 from fairseq.criterions import FairseqCriterion, register_criterion
 
-torch.autograd.set_detect_anomaly(True)
-@register_criterion("l1_loss", dataclass=FairseqDataclass)
+
+@register_criterion("l2_loss", dataclass=FairseqDataclass)
 class GraphPredictionL1Loss(FairseqCriterion):
     """
-    Implementation for the L1 loss (MAE loss) used in graphormer model training.
+    Implementation for the L2 loss (MAE loss) used in graphormer model training.
     """
 
     def forward(self, model, sample, reduce=True):
@@ -37,9 +37,10 @@ class GraphPredictionL1Loss(FairseqCriterion):
         # md data
         targets_normalize = (targets - 6.529300030461668) / 1.9919705951218716
 
-        loss = nn.L1Loss(reduction="none")(logits, targets_normalize[: logits.size(0)])
+        loss = nn.MSELoss(reduction="none")(logits, targets_normalize[: logits.size(0)])
         loss = (loss * weights).sum()
-        loss += nn.L1Loss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
+        loss += nn.MSELoss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
+
 
         logging_output = {
             "loss": loss.data,
@@ -67,7 +68,7 @@ class GraphPredictionL1Loss(FairseqCriterion):
         return True
 
 
-@register_criterion("l1_loss_with_flag", dataclass=FairseqDataclass)
+@register_criterion("l2_loss_with_flag", dataclass=FairseqDataclass)
 class GraphPredictionL1LossWithFlag(GraphPredictionL1Loss):
     """
     Implementation for the binary log loss used in graphormer model training.
@@ -87,7 +88,6 @@ class GraphPredictionL1LossWithFlag(GraphPredictionL1Loss):
         batch_data = sample["net_input"]["batched_data"]["x"]
         with torch.no_grad():
             natoms = batch_data.shape[1]
-
         logits = model(**sample["net_input"], perturb=perturb)
         if isinstance(logits, tuple):
             logits, weights = logits
@@ -97,10 +97,9 @@ class GraphPredictionL1LossWithFlag(GraphPredictionL1Loss):
         # md data
         targets_normalize = (targets - 6.529300030461668) / 1.9919705951218716
 
-        loss = nn.L1Loss(reduction="none")(logits, targets_normalize[: logits.size(0)])
+        loss = nn.MSELoss(reduction="none")(logits, targets_normalize[: logits.size(0)])
         loss = (loss * weights).sum()
-        loss += nn.L1Loss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
-
+        loss += nn.MSELoss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
 
         logging_output = {
             "loss": loss.data,
