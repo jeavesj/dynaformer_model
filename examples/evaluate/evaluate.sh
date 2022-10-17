@@ -1,6 +1,10 @@
 save_dir=$1
-echo "# On $save_dir"
-
+[ -z "${save_dir}" ] && save_dir="$(realpath ~)"
+dataset=$2
+[ -z "${dataset_name}" ] && dataset_name="pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
+suffix=$3
+[ -z "${suffix}" ] && suffix="_pdbbind2016"
+echo "# On directory: $save_dir | On dataset: $dataset | Save suffix: $suffix"
 layers=4
 num_head=32
 hidden_size=512
@@ -12,10 +16,10 @@ num_edge_types=16384
 loss="l1_loss"
 
 python dynaformer/evaluate/evaluate.py \
-  --split "test" --suffix "_pdbbind2016" \
+  --split "test" --suffix "$suffix" \
   --user-dir "$(realpath ./dynaformer)" \
   --num-workers 16 --ddp-backend=legacy_ddp \
-  --dataset-name "pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022" \
+  --dataset-name $dataset \
   --dataset-source pyg --data-path ~ \
   --batch-size 1 --data-buffer-size 20 \
   --task graph_prediction_with_flag --criterion ${loss}_with_flag --arch graphormer_base --num-classes 1 \
