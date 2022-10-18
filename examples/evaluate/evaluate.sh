@@ -13,7 +13,6 @@ seed=2022
 dist_head=gbf3d
 num_dist_head_kernel=256
 num_edge_types=16384
-loss="l1_loss"
 
 python dynaformer/evaluate/evaluate.py \
   --split "test" --suffix "$suffix" \
@@ -22,7 +21,7 @@ python dynaformer/evaluate/evaluate.py \
   --dataset-name $dataset \
   --dataset-source pyg --data-path ~ \
   --batch-size 1 --data-buffer-size 20 \
-  --task graph_prediction_with_flag --criterion ${loss}_with_flag --arch graphormer_base --num-classes 1 \
+  --task graph_prediction_with_flag --criterion l2_loss_with_flag --arch graphormer_base --num-classes 1 \
   --encoder-layers $layers --encoder-attention-heads $num_head \
   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
   --fp16 --save-dir "$save_dir" \

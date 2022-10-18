@@ -1,16 +1,15 @@
 import torch
-import numpy as np
+from torchmetrics import functional as MF
 from fairseq import utils, options, tasks
 from fairseq.logging import progress_bar
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
-import sys
+import numpy as np
+import pandas as pd
+
+import logging
 from pathlib import Path
 import sys
 
-import logging
-from torchmetrics import functional as MF
-import torch
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -129,14 +128,8 @@ def eval(args, cfg, task, model, checkpoint_path=None):
 
 def main():
     parser = options.get_training_parser()
-    parser.add_argument(
-        "--split",
-        type=str,
-    )
-    parser.add_argument(
-        "--suffix",
-        type=str
-    )
+    parser.add_argument("--split", type=str)
+    parser.add_argument("--suffix",type=str)
 
     args = options.parse_args_and_arch(parser, modify_parser=None)
     cfg = convert_namespace_to_omegaconf(args)
