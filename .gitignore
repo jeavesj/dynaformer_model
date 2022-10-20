@@ -128,7 +128,6 @@ exps
 # Weights and Biases logs
 wandb/
 
-
 *.pyc
 *.log
 ckpts
@@ -137,3 +136,5 @@ examples/property_prediction/ckpts
 #examples/property_prediction/dataset
 !examples/property_prediction/dataset/pcqm4m-v2/RELEASE_v1.txt
 !examples/property_prediction/dataset/pcqm4m_kddcup2021/RELEASE_v1.txt
+# cython generated
+algos.c
