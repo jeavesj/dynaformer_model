@@ -297,7 +297,7 @@ class GraphormerEncoder(FairseqEncoder):
         if masked_tokens is not None:
             raise NotImplementedError
 
-        if self.sample_weight_estimator is not None:
+        if self.sample_weight_estimator:
             weight = torch.ones(x.shape, dtype=x.dtype, device=x.device) * 0.01
             wmask = torch.ones(weight.shape, dtype=torch.bool, device=weight.device)
             wones = torch.ones(weight.shape, dtype=weight.dtype, device=weight.device)

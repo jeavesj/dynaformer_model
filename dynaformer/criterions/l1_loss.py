@@ -39,7 +39,6 @@ class GraphPredictionL1Loss(FairseqCriterion):
 
         loss = nn.L1Loss(reduction="none")(logits, targets_normalize[: logits.size(0)])
         loss = (loss * weights).sum()
-        loss += nn.L1Loss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
 
         logging_output = {
             "loss": loss.data,
@@ -99,7 +98,6 @@ class GraphPredictionL1LossWithFlag(GraphPredictionL1Loss):
 
         loss = nn.L1Loss(reduction="none")(logits, targets_normalize[: logits.size(0)])
         loss = (loss * weights).sum()
-        loss += nn.L1Loss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
 
 
         logging_output = {

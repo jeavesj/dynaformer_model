@@ -14,6 +14,7 @@ class GraphPredictionL1Loss(FairseqCriterion):
     """
     Implementation for the L2 loss (MAE loss) used in graphormer model training.
     """
+    acc_loss, inc = 0, 0
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -39,8 +40,6 @@ class GraphPredictionL1Loss(FairseqCriterion):
 
         loss = nn.MSELoss(reduction="none")(logits, targets_normalize[: logits.size(0)])
         loss = (loss * weights).sum()
-        loss += nn.MSELoss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
-
 
         logging_output = {
             "loss": loss.data,
@@ -99,7 +98,6 @@ class GraphPredictionL1LossWithFlag(GraphPredictionL1Loss):
 
         loss = nn.MSELoss(reduction="none")(logits, targets_normalize[: logits.size(0)])
         loss = (loss * weights).sum()
-        loss += nn.MSELoss(reduction='sum')(weights, torch.ones(weights.shape, dtype=weights.dtype, device=weights.device))
 
         logging_output = {
             "loss": loss.data,
