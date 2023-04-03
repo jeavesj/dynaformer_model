@@ -1,21 +1,21 @@
 # set -o xtrace
-set -x
+# set -x
 ulimit -c unlimited
 [ -z "${n_gpu}" ] && n_gpu=$(nvidia-smi -L | wc -l)
-[ -z "${lr}" ] && lr=2e-4
+[ -z "${lr}" ] && lr=1e-4
 [ -z "${end_lr}" ] && end_lr=1e-9
-[ -z "${max_epoch}" ] && max_epoch=50
-[ -z "${layers}" ] && layers=6
-[ -z "${hidden_size}" ] && hidden_size=768
-[ -z "${ffn_size}" ] && ffn_size=768
+[ -z "${max_epoch}" ] && max_epoch=100
+[ -z "${layers}" ] && layers=4
+[ -z "${hidden_size}" ] && hidden_size=512
+[ -z "${ffn_size}" ] && ffn_size=512
 [ -z "${num_head}" ] && num_head=32
-[ -z "${batch_size}" ] && batch_size=16
+[ -z "${batch_size}" ] && batch_size=20
 [ -z "${clip_norm}" ] && clip_norm=5
 
 [ -z "${update_freq}" ] && update_freq=1
 [ -z "${total_steps}" ] && total_steps=$((320000*(max_epoch+1)/batch_size/n_gpu/update_freq))
 [ -z "${warmup_steps}" ] && warmup_steps=$((total_steps*10/100))
-[ -z "${seed}" ] && seed=1
+[ -z "${seed}" ] && seed=2022
 
 [ -z "${dataset_name}" ] && dataset_name="hybrid:set_name=md-refined2019-5-5-5+general-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
 [ -z "${data_path}" ] && data_path=$(realpath ~/dataset)
@@ -23,26 +23,26 @@ ulimit -c unlimited
 [ -z "${dropout}" ] && dropout=0.1
 [ -z "${act_dropout}" ] && act_dropout=0.1
 [ -z "${attn_dropout}" ] && attn_dropout=0.1
-[ -z "${weight_decay}" ] && weight_decay=0.01
-[ -z "${sandwich_ln}" ] && sandwich_ln="true"
+[ -z "${weight_decay}" ] && weight_decay=0.00001
+[ -z "${sandwich_ln}" ] && sandwich_ln="false"
 
 [ -z "${adam_betas}" ] && adam_betas="(0.9,0.999)"
 [ -z "${adam_eps}" ] && adam_eps=1e-8
 
 [ -z "${save_prefix}" ] && save_prefix="MD"
-[ -z "${flag}" ] && flag=false
-[ -z "${flag_m}" ] && flag_m=4
-[ -z "${flag_step_size}" ] && flag_step_size=0.01
+[ -z "${flag}" ] && flag=true
+[ -z "${flag_m}" ] && flag_m=3
+[ -z "${flag_step_size}" ] && flag_step_size=0.001
 [ -z "${flag_mag}" ] && flag_mag=0.01
 
-[ -z "${dist_head}" ] && dist_head="none"
-[ -z "${num_dist_head_kernel}" ] && num_dist_head_kernel=128
+[ -z "${dist_head}" ] && dist_head="gbf3d"
+[ -z "${num_dist_head_kernel}" ] && num_dist_head_kernel=256
 [ -z "${num_edge_types}" ] && num_edge_types=$((512*32))
 [ -z "${task}" ] && task="graph_prediction"
-[ -z "${loss}" ] && loss="l1_loss"
-[ -z "${patience}" ] && patience="10"
+[ -z "${loss}" ] && loss="l2_loss"
+[ -z "${patience}" ] && patience="50"
 
-[ -z "${fingerprint}" ] && fingerprint="false"
+[ -z "${fingerprint}" ] && fingerprint="true"
 
 [ -z "${test_set}" ] && test_set="pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=5-5-5,seed=2022"
 [ -z "${ddp_options}" ] && ddp_options=""
@@ -60,7 +60,7 @@ IFS=$OLDIFS
 
 hyperparams="${save_prefix}-dataset${strarr[0]}_${strarr[1]}-lr$lr-end_lr$end_lr-epoch${max_epoch}-task${task}-loss${loss}"
 hyperparams+="-L${layers}D${hidden_size}F${ffn_size}H${num_head}BS$((batch_size*n_gpu*update_freq))CLIP${clip_norm}"
-hyperparams+="/dp${dropout}-attn_dp${attn_dropout}-act_dp${act_dropout}-wd${weight_decay}-droppath${droppath_prob}-sandwich${sandwich_ln}"
+hyperparams+="/dp${dropout}-attn_dp${attn_dropout}-act_dp${act_dropout}-wd${weight_decay}-sandwich${sandwich_ln}"
 if [ "$flag" = 'true' ]; then
   hyperparams+="-flag${flag}-flag_m${flag_m}-stepsize${flag_step_size}-mag${flag_mag}"
 fi
@@ -109,16 +109,9 @@ echo "flag_mag: ${flag_mag}"
 echo "save_dir: ${save_dir}"
 echo "tsb_dir: ${tsb_dir}"
 echo "data_dir: ${data_path}"
-echo "droppath_prob: ${droppath_prob}"
 echo "dist_head: ${dist_head}"
 echo "num_dist_head_kernel: $num_dist_head_kernel"
 echo "num_edge_types: $num_edge_types"
-echo "bucket3d_hidden_dim: $bucket3d_hidden_dim"
-echo "bucket3d_dist_max_dist: $bucket3d_dist_max_dist"
-echo "bucket3d_dist_bucket_size: $bucket3d_dist_bucket_size"
-echo "bucket3d_polar_max_dist: $bucket3d_polar_max_dist"
-echo "bucket3d_polar_angle_bucket_size: $bucket3d_polar_angle_bucket_size"
-echo "bucket3d_embedding_nonlinear: $bucket3d_embedding_nonlinear"
 echo "==============================================================================="
 
 # ENV
@@ -159,7 +152,7 @@ echo "action_args: ${action_args}"
 echo "========================================================================================"
 
 
-python -m torch.distributed.launch --nproc_per_node=${n_gpu} ${ddp_options} \
+python -m torch.distributed.launch --nproc_per_node=${n_gpu} --master_port 29501 ${ddp_options} \
   $(which fairseq-train) \
   --user-dir "$(realpath ./dynaformer)" \
   --num-workers 16 --ddp-backend=legacy_ddp \
@@ -173,6 +166,6 @@ python -m torch.distributed.launch --nproc_per_node=${n_gpu} ${ddp_options} \
   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
   --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
   --optimizer adam --adam-betas $adam_betas --adam-eps $adam_eps $action_args --clip-norm $clip_norm \
-  --fp16 --wandb-project "${WANDB_PROJECT_NAME}" --save-dir "$save_dir" --tensorboard-logdir $tsb_dir --seed $seed \
-  --max-nodes 512 --droppath-prob $droppath_prob --dist-head $dist_head \
+  --fp16 --save-dir "$save_dir" --tensorboard-logdir $tsb_dir --seed $seed \
+  --max-nodes 600 --dist-head $dist_head \
   --num-dist-head-kernel $num_dist_head_kernel --num-edge-types $num_edge_types 2>&1 | tee "$save_dir/train_log.txt"

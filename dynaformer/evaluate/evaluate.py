@@ -141,8 +141,7 @@ def main():
     pathes = list(Path(args.save_dir).glob("*.pt"))
     for checkpoint_path in pathes:
         logger.info(f"evaluating checkpoint file {checkpoint_path}")
-        try: eval(args, cfg, task, model, checkpoint_path)
-        except: pass
+        eval(args, cfg, task, model, checkpoint_path)
         sys.stdout.flush()
 
         
