@@ -18,7 +18,7 @@ python -m torch.distributed.launch --nproc_per_node=8 \
   --batch-size $batch_size --data-buffer-size 40 \
   --task graph_prediction_with_flag --criterion l1_loss_with_flag --arch graphormer_base --num-classes 1 \
   --lr $lr --end-learning-rate 1e-9 --lr-scheduler polynomial_decay --power 1 \
-  --warmup-updates 10280 --total-num-update 50900 --max-update 50900 --update-freq 1 --patience 50 \
+  --warmup-updates 10280 --total-num-update 50900 --max-update 50900 --update-freq 1 \
   --encoder-layers 4 --encoder-attention-heads 32 \
   --encoder-embed-dim 512 --encoder-ffn-embed-dim 512 \
   --attention-dropout 0.1 --act-dropout 0.1 --dropout 0.1 --weight-decay 1e-5 \

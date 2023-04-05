@@ -1,12 +1,18 @@
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 save_dir=$1
-[ -z "${save_dir}" ] && save_dir="$(realpath ~)"
+[ -z "${save_dir}" ] && save_dir="$(realpath $SCRIPT_DIR/../../../checkpoint)"
 dataset=$2
 [ -z "${dataset}" ] && dataset="pdbbind:set_name=refined-set-2019-coreset-2016,cutoffs=5-5-5,seed=0"
 data_path=$3
-[ -z "${data_path}" ] && data_path="$(realpath ~/data)"
+[ -z "${data_path}" ] && data_path="$(realpath $SCRIPT_DIR/../../../data)"
 suffix=$4
-[ -z "${suffix}" ] && suffix="_pdbbind2016"
-echo "# On directory: $save_dir | On dataset: $dataset | Data save to $data_path | Save suffix: $suffix"
+[ -z "${suffix}" ] && suffix="_CASF2016"
+echo Running $SCRIPT_DIR/../../dynaformer/evaluate/evaluate.py
+echo Finding checkpoint files in: $save_dir
+echo Using dataset: $dataset
+echo Save downloaded data to $data_path
+echo Save csv with suffix: $suffix
 
 layers=4
 num_head=32
@@ -16,9 +22,9 @@ dist_head=gbf3d
 num_dist_head_kernel=256
 num_edge_types=16384
 
-python dynaformer/evaluate/evaluate.py \
+python $SCRIPT_DIR/../../dynaformer/evaluate/evaluate.py \
   --split "test" --suffix "$suffix" \
-  --user-dir "$(realpath ./dynaformer)" \
+  --user-dir "$(realpath $SCRIPT_DIR/../../dynaformer)" \
   --num-workers 16 --ddp-backend=legacy_ddp \
   --dataset-name $dataset \
   --dataset-source pyg --data-path $data_path \

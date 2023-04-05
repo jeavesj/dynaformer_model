@@ -1,1 +1,0 @@
-bash examples/evaluate/evaluate.sh ../model/
