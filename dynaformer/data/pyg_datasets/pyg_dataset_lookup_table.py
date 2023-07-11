@@ -24,7 +24,7 @@ def process_num_on_node():
 
 
 class MDDataset(InMemoryDataset):
-    url = "https://ml2md.blob.core.windows.net/yaosen-data/datasets/mddata/{}.zip"
+    url = "https://scientificdata.blob.core.windows.net/dynaformer/dataset/mddata/{}.zip"
 
     def __init__(self, root, set_name, split, seed=None, transform=None, pre_transform=None, pre_filter=None):
         self.path = Path(f"{root}").absolute()
@@ -97,7 +97,7 @@ class MDDataset(InMemoryDataset):
 
 
 class PDBBind(InMemoryDataset):
-    url = "https://ml2md.blob.core.windows.net/yaosen-data/datasets/pdbbind/{}.zip"
+    url = "https://scientificdata.blob.core.windows.net/dynaformer/dataset/pdbbind/{}.zip"
 
     def __init__(self, root, set_name, cutoffs, split, seed, transform=None, pre_transform=None,
                  pre_filter=None):

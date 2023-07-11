@@ -21,6 +21,9 @@ pip install setuptools==59.5.0
 pip install protobuf==3.20.1
 pip install wandb
 pip install Cython
+# fix AttributeError: module 'numpy' has no attribute 'float'
+pip install numpy==1.20.3 scipy pandas
+
 cd fairseq
 # if fairseq submodule has not been checkouted, run:
 # git submodule update --init --recursive
