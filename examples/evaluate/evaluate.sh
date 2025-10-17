@@ -28,7 +28,7 @@ python $SCRIPT_DIR/../../dynaformer/evaluate/evaluate.py \
   --num-workers 16 --ddp-backend=legacy_ddp \
   --dataset-name $dataset \
   --dataset-source pyg --data-path $data_path \
-  --batch-size 1 --data-buffer-size 20 \
+  --batch-size 16 --data-buffer-size 20 \
   --task graph_prediction_with_flag --criterion l2_loss_with_flag --arch graphormer_base --num-classes 1 \
   --encoder-layers $layers --encoder-attention-heads $num_head \
   --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size \
