@@ -1,5 +1,18 @@
 import torch
 from torchmetrics import functional as MF
+
+import sys, types
+try:
+    import distutils.version
+except Exception:
+    distutils = types.ModuleType('distutils')
+    version = types.ModuleType('version')
+    class LooseVersion(str): pass
+    version.LooseVersion = LooseVersion
+    distutils.version = version
+    sys.modules['distutils'] = distutils
+    sys.modules['distutils.version'] = version
+
 from fairseq import utils, options, tasks
 from fairseq.logging import progress_bar
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
@@ -9,6 +22,8 @@ import pandas as pd
 import logging
 from pathlib import Path
 import sys
+import time
+import os
 
 
 logger = logging.getLogger(__name__)
@@ -32,9 +47,16 @@ def gen_result(df, test_id, func):
     return pdbid, true, pred
 
 
+def _append_df(df, path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = not path.exists() or os.stat(path).st_size == 0
+    df.to_csv(path, mode='a', header=header, index=False)
+
+
 def eval(args, cfg, task, model, checkpoint_path=None):
     # record
     save_file = checkpoint_path.parent / (checkpoint_path.name.split('.')[0] + f'{args.suffix}' + '.csv')
+    timing_file = checkpoint_path.parent / (checkpoint_path.name.split('.')[0] + f'{args.suffix}' + '.inference_timing.csv')
     # load checkpoint
     model_state = torch.load(checkpoint_path)["model"]
 
@@ -78,22 +100,51 @@ def eval(args, cfg, task, model, checkpoint_path=None):
     with torch.no_grad():
         model.eval()
         for i, sample in enumerate(progress):
+            t0 = time.perf_counter()
             sample = utils.move_to_cuda(sample)
             y = model(**sample["net_input"])
             if isinstance(y, tuple): y = y[0]
             y = y.reshape(-1)
+            infer_s = time.perf_counter() - t0
 
-            y_pred.extend(y.detach().cpu())
-            y_true.extend(sample["net_input"]["batched_data"]['y'].cpu().reshape(-1))
-            pdbid.extend(sample["net_input"]["batched_data"]['pdbid'])
-            frames.extend(sample["net_input"]["batched_data"]['frame'])
+            y_cpu = y.detach().cpu()
+            y_true_cpu = sample['net_input']['batched_data']['y'].detach().cpu().reshape(-1)
+            pdbid_batch = sample['net_input']['batched_data']['pdbid']
+
+            # ensure frames are on CPU and plain numbers
+            frames_batch_cpu = sample['net_input']['batched_data']['frame'].detach().cpu().reshape(-1)
+            frames_batch_list = frames_batch_cpu.tolist()
+
+            # accumulate for final metrics
+            y_pred.extend(y_cpu)
+            y_true.extend(y_true_cpu)
+            pdbid.extend(pdbid_batch)
+            frames.extend(frames_batch_list)
 
             torch.cuda.empty_cache()
+
+            # scale predictions for gpu then append batch to csv
+            y_pred_scaled = y_cpu * 1.9919705951218716 + 6.529300030461668
+            df_batch = pd.DataFrame({
+                'pdbid': list(pdbid_batch),
+                'frame': np.asarray(frames_batch_list, dtype=np.float32),
+                'y_true': y_true_cpu.numpy().astype(np.float32),
+                'y_pred': y_pred_scaled.numpy().astype(np.float32),
+            })
+
+            _append_df(df_batch, save_file)
+
+            # per-pose timing; same infer time for all items in this batch
+            df_time = pd.DataFrame({
+                'pdbid': list(pdbid_batch),
+                'frame': pd.Series(frames_batch_list).astype(np.float32),
+                't_infer_s': np.repeat(infer_s, len(pdbid_batch)),
+            })
+            _append_df(df_time, timing_file)
 
     # save predictions
     y_pred = torch.Tensor(y_pred)
     y_true = torch.Tensor(y_true)
-    frames = torch.Tensor(frames)
     pdbid = pdbid
     assert len(pdbid) == len(frames)
     print(len(pdbid), len(frames), len(y_pred), len(y_true))
@@ -101,11 +152,11 @@ def eval(args, cfg, task, model, checkpoint_path=None):
     y_pred = y_pred * 1.9919705951218716 + 6.529300030461668
 
     # evaluate pretrained models
-
+    
     print(f"save results to {save_file}")
     df = pd.DataFrame({
         "pdbid": pdbid,
-        "frame": frames,
+        "frame": np.asarray(frames, dtype=np.float32),
         "y_true": y_true.to(torch.float32).cpu().numpy(),
         "y_pred": y_pred.to(torch.float32).cpu().numpy(),
     })
@@ -144,6 +195,6 @@ def main():
         eval(args, cfg, task, model, checkpoint_path)
         sys.stdout.flush()
 
-        
+
 if __name__ == '__main__':
     main()
